@@ -1,32 +1,37 @@
+import os
 import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse
-from urllib.robotparser import RobotFileParser
-import truststore.inject_into_ssl()
 
-url = "https://vneconomy.vn/techconnect/3-thang-dau-nam-2026-hon-45000-lao-dong-cong-nghe-tren-toan-cau-bi-sa-thai.htm"
-headers = {"User-Agent": "Mozilla/5.0 (RBL DBI202 student project)"}
+# Đường dẫn thư mục lưu file (data/raw)
+RAW_DIR = os.path.join("data", "raw")
+os.makedirs(RAW_DIR, exist_ok=True)
 
-# 1. Kiem tra robots.txt (tai bang requests de tranh loi SSL cua urllib)
-p = urlparse(url)
-robots_url = f"{p.scheme}://{p.netloc}/robots.txt"
-rr = requests.get(robots_url, headers=headers, timeout=20)
-print("Ma robots.txt:", rr.status_code)
-if rr.status_code == 200:
-    rp = RobotFileParser()
-    rp.parse(rr.text.splitlines())
-    print("robots.txt cho phep:", rp.can_fetch("*", url))
-else:
-    print("Khong doc duoc robots.txt, hay mo tay tren trinh duyet de kiem tra")
+# Link API trỏ tới thư mục chứa dữ liệu của repo layoffs-tracker
+# Lưu ý: Nếu file dữ liệu nằm trong thư mục con (ví dụ 'data'), bạn thêm '/data' vào cuối link nhé
+API_URL = "https://api.github.com/repos/evgeniimatveev/layoffs-tracker/contents"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# 2. Tai bai bao
-r = requests.get(url, headers=headers, timeout=20)
-print("Ma trang:", r.status_code)
+def crawl_layoffs_data():
+    resp = requests.get(API_URL, headers=HEADERS, timeout=20)
+    if resp.status_code != 200:
+        print(f"Lỗi truy cập API: {resp.status_code}")
+        return
 
-# 3. Lay thong tin
-soup = BeautifulSoup(r.text, "lxml")
-tieu_de = soup.find("meta", property="og:title")
-ngay = soup.find("meta", property="article:published_time")
-print("Tieu de:", tieu_de["content"] if tieu_de else soup.title.get_text(strip=True))
-print("Ngay dang:", ngay["content"] if ngay else None)
-print("So doan van:", len(soup.find_all("p")))
+    items = resp.json()
+    for item in items:
+        # Nếu là file (ưu tiên lấy file .csv, .json, .xlsx), tiến hành tải về data/raw/
+        if item["type"] == "file" and item.get("download_url"):
+            filename = item["name"]
+            download_url = item["download_url"]
+            save_path = os.path.join(RAW_DIR, filename)
+
+            print(f"Đang tải file: {filename} ...")
+            file_resp = requests.get(download_url, headers=HEADERS, timeout=20)
+            if file_resp.status_code == 200:
+                with open(save_path, "wb") as f:
+                    f.write(file_resp.content)
+                print(f" -> Đã lưu thành công: {save_path}")
+            else:
+                print(f" -> Lỗi {file_resp.status_code} khi tải {filename}")
+
+if __name__ == "__main__":
+    crawl_layoffs_data()
